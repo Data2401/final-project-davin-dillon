@@ -1,0 +1,501 @@
+---
+title: "Let's Go To The Movies"
+author: 'Davin Dillon'
+date: "2022-05-03"
+output:
+  html_document:
+    font_adjustment: 1
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, include = T, message = F, warning = F)
+```
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><center><h1>Introduction</h1></center>
+The Academy Awards, also known as the Oscars, is arguably the ultimate award for any movie. I plan to use the data I have collected to investigate the relationship between Oscars and money. Do Oscar winning movies cost more to make than movies that lose Oscars? Do both sets of movies cost more than movies that are not nominated? Do Oscar winners, Oscar losers, or non-nominated movies make more gross revenue? Which has the highest percentage profit? I will use the data to answer these questions and more. Along the way, I will also try to highlight some interesting statistics and facts. By analyzing this data, I hope to shed some light on whether production companies pay for Oscars, profit by making Oscars, both, or neither. 
+
+Also, by choosing a fun topic, I hope that people looking find answers that they enjoy thinking about. It is certainly true that I had fun looking for my own answers.
+</span>
+
+---
+
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><center><h1>Data Preparation</h1></center>
+Most of these 8 libraries are used extensively, while a couple have only one or two functions that came in handy for things I wanted to accomplish in the presentation.
+</span>
+
+```{r}
+
+library(tidyverse) # multiple tidy packages
+library(readr) # for reading files
+library(ggplot2) # for plotting
+library(plotly) # for interactive plotting
+library(dplyr) # data manipulation
+library(formattable) # comma function formatting numbers
+library(gridExtra) # side by side plots
+library(kableExtra) # for scrolling table
+```
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;">In this code, I imported the four data sets I wound up using. I give a brief explanation of each below.</span>
+
+```{r}
+
+budget <- read_csv('movies_budget.csv') # budget including new movies
+oscars <- read_csv('the_oscar_award.csv') # oscar winners and losers
+
+meta <- read_csv('movies_metadata.csv') # majority of data used
+
+inflation <- read_csv('inflation_data.csv') 
+# inflation data for calculations
+
+```
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Paying for Oscars or Oscars for Pay?</center></h2><ul><li>The largest part of my data comes from a data set I got from github. [<a style = 'color:green;'>yash91sharma github</a>](https://raw.githubusercontent.com/yash91sharma/IMDB-Movie-Dataset-Analysis/master/movie_metadata.csv) created the data for a project similar to mine in which they asked which countries made the most movies.This data set contains `r comma(nrow(meta), digits = 0)` rows of data and seems to have been made around 2017.</li>
+
+<li>I used [<a style = 'color:green;'>alexsychu kaggle</a>](https://www.kaggle.com/code/alexsychu/movie-industry-eda-alex-chu-5-april-2022/data) to gather some more data up to 2020. This second data set had an additional `r comma(nrow(budget), digits = 0)` rows of data. This user was trying to answer the question of how to predict if a movie will do well.
+
+</li><li>Lastly for movie data, I used data from [<a style = 'color:green;'>unanimad kaggle</a>](https://www.kaggle.com/datasets/unanimad/the-oscar-award). This data set had `r comma(nrow(oscars),digits = 0)` rows of data and this kaggle user asked various questions about who won Oscars.
+
+</li><li>My last and only 'non-movie' data set comes from [<a style = 'color:green;'>officialdata.org</a>](https://www.officialdata.org/us/inflation/1800?amount=1#:~:text=Value%20of%20%241%20from%201800%20to%202022&text=The%20dollar%20had%20an%20average,Labor%20Statistics%20consumer%20price%20index.) , where I obtained 223 rows of inflation data which allowed me to calculate budgets and gross revenue with inflation as a factor.</li></ul></span>
+
+
+---
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Data Wrangling</center></h2>
+There were many column renames and some work to choose a movie budget in cases where the data sets disagreed. Once I had the columns I wanted, I set in on joining the data together. First, I joined the meta data with the budget data to include all of the titles for which I had information. My next adventure (or misadventure) was to join this data with the inflation data. Once that was done, all that was left was joining this information with the Oscar data. All in all, I used three full joins. </span>
+
+
+
+```{r}
+
+oscars <- oscars %>%    # rename year for join
+  rename('year' = 'year_film')
+
+meta$year <-  format(as.Date(meta$release_date, format = "%m/%d/%Y"), "%Y")
+
+blue = '#000080' # just the color code I wanted to use for my print
+  
+meta <- meta %>% 
+  mutate(year = as.numeric(year)) # easier use for comparisons/inflation
+
+# renames
+budget <- budget %>% 
+  rename(vote_average = score) %>% # renaming vote data for joins etc
+  rename(vote_count = votes) %>% 
+  rename(Title = 'Movie Title')
+
+
+oscars <- oscars %>% 
+  rename(Title = 'film')  # rename for joins
+
+adj <- inflation %>% 
+  mutate(multiplier = (22.82/amount)) 
+# create multiplier column for easy calculations
+
+budget <- budget %>% 
+  rename(new_budget = Budget)  # rename for joins etc
+
+
+options(scipen = 100) # avoid scientific notation 
+
+full_budget <- full_join(meta, budget, on = 'Title') 
+# full join of metadata and budget data to get new and old movies etc
+
+full_bud <- full_budget %>% 
+  mutate(budget = pmax(new_budget, meta_budget, na.rm = T)) %>% 
+  select(Title,genres, budget,new_budget,
+         meta_budget, popularity,year,
+         release_date, revenue, runtime, vote_average,
+         vote_count,gross)
+# set budget to max of two different budgets.
+# picking max is arbitrary, but needed in most cases
+
+
+full_bud <- full_bud[-c(1,2,3),] %>%
+   arrange(desc(as.numeric(budget)))
+# remove first three unnecessary rows
+
+
+full_bud <- full_bud %>%  # replace 1900 sentinels with 2022
+  mutate(year = replace(year, year == 1900, 2022))
+# Most of these seemed to be less known movies
+# so I thought that 2022 would do the least harm 
+# with the inflation numbers
+
+adj_bud <- full_join(full_bud, adj,
+                             on = c('Title', 'year')) %>% 
+  mutate(with_inflation = (as.numeric(budget) * (multiplier))) %>% 
+  mutate(gross_inflation = (as.numeric(full_bud$gross)
+                            * (multiplier))) %>% 
+  select(Title,genres,vote_average, vote_count, budget,
+         with_inflation, gross_inflation, year, gross,
+         release_date) %>% 
+  arrange(desc(with_inflation))  # joining movies with inflation
+# creating with_inflation(budget) and gross_inflation columns
+# arranging by highest with_inflation budgets
+
+
+osc_bud <-  full_join(adj_bud, oscars, on  = c('Title'))
+# joining all other data to Oscars data
+# This is the starting point for most of my data manipulation
+# 62706 entries, 15 total columns, of which 8 columns used.
+
+```
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;">I wound up only using 8 of the 15 columns of my final data set. A few of these columns were created by manipulating other data.  I had planned to look at more aspects, but I eventually realized that was too much for this presentation. Maybe someone else will see what I have done, and decide to dig deeper. Maybe I will come back to it someday myself.</span>
+
+
+
+
+------------------------------------------------------------------------
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Some Dataset Numbers</center></h2></span>
+
+
+
+
+```{r}
+
+oscar_titles <- oscars %>% # count number of titles in oscar data
+  distinct(Title)
+
+oscar_wn_titles <- oscars %>% # count number of oscar winning movies
+  filter(winner == T) %>% 
+  distinct(Title)
+
+total_noms <- osc_bud %>% # count total number of nominations
+  filter(!is.na(winner))
+
+
+total_wins <- osc_bud %>% # count total number of awards won
+  filter(winner == T)
+
+
+bst_pic <-  osc_bud %>% 
+  group_by(Title) %>% 
+  filter((str_detect(category, 'PIC') | 
+            str_detect(category, 'OUT'))) %>% 
+  select(Title, year,budget, with_inflation,
+         gross_inflation, gross, genres, vote_count,
+         vote_average, category, winner) %>% 
+  distinct(Title, .keep_all = T)
+# select best picture nominees in its many forms
+
+
+bst_pic_won <- bst_pic %>%  # count best picture winners
+  filter(winner == T) %>% 
+  distinct(Title, .keep_all = T)
+
+bst_act <- osc_bud %>%  # count best actor/actress titles
+  group_by(Title) %>% 
+  filter(str_detect(category, 'ACT')) %>% 
+  select(Title, genres, budget, category, winner)
+
+bst_act_wn <- bst_act %>% 
+  filter(!is.na(winner)) %>% 
+  filter(winner == T) %>% 
+  distinct(Title, .keep_all = T) # count winners of actor/actress
+
+```
+
+
+[The code above is used to find the numbers contained here. The data I was able to collect contains `r comma(nrow(oscar_titles), digits = 0)` movies nominated for an Academy Award since its inception in 1929. Of these `r comma(nrow(oscar_titles),digits = 0)` movies, `r comma(nrow(oscar_wn_titles), digits = 0)` won at least one award. There have been `r comma(nrow(total_noms), digits = 0)` total Oscar nominations, and `r comma(nrow(total_wins), digits = 0)` total Oscar wins in the dataset. `r comma(nrow(bst_pic), digits = 0)` movies have been nominated for Best Picture in its many forms. Out of these, `r comma(nrow(bst_pic_won), digits = 0)` won. `r comma(nrow(bst_act %>% distinct(Title)), digits = 0)` movies have had an actor or actress nominated in either a leading or supporting role.  `r comma(nrow(bst_act_wn), digits = 0)` movies had at least one winner in an acting category. ]{style="color:navy;, font-family:Arial, Helvetica, sans-serif;"}
+
+
+---
+
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Plotting Profit</center></h2>
+The first graph is a scatter plot of budget versus gross. Because there were so many, I also wanted to make the scatter plot with non-nominated movies removed. The last plot shows the same information with inflation. The black lines are the break even line.</span>
+
+```{r}
+
+osc_bud <- osc_bud[!is.na(osc_bud$budget), ] # remove na budgets
+
+
+osc_bud <- osc_bud %>% 
+  mutate(budget = as.numeric(budget)) # make budget numeric 
+
+my_theme = theme(axis.text.x = element_text(angle = -90,
+                                   size = 5, color = blue ),
+        axis.text.y = element_text(color = blue)) +
+  theme(axis.title.x = element_text(color = blue),
+        axis.title.y = element_text(color = blue))
+
+p <- osc_bud %>% select(Title, genres, gross, budget, winner) %>% 
+  ggplot(aes(x = budget, y = gross, color = winner, label = Title), alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 1) +
+  geom_point() +
+  my_theme  # budget vs gross
+
+ggplotly(p)
+
+p2 <- osc_bud %>% select(Title, genres, gross, budget, winner) %>% 
+  filter(!is.na(winner)) %>% 
+  ggplot(aes(x = budget, y = gross, color = winner, label = Title), alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 1) +
+  geom_point() +
+  my_theme # non-nominated removed
+
+ggplotly(p2)
+
+p3 <- osc_bud %>% select(Title, genres, gross, budget,with_inflation, gross_inflation, winner) %>% 
+  filter(!is.na(winner)) %>% 
+  ggplot(aes(x = with_inflation, y = gross_inflation, color = winner, label = Title), alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 1) +
+  geom_point() +
+  my_theme
+
+ggplotly(p3) # with inflation
+
+```
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;">The scatter plot above plots budget versus gross. Oscar winners are in blue, Oscar losers in red and non-nominated in grey. These colors will mean the same thing throughout this report.</span>
+
+
+
+---
+
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Highest Percent Profit</center></h2></span>
+
+```{r}
+high_prof <- osc_bud %>% 
+  filter(budget != 0) %>% 
+  mutate(pct_prof = 100 * (as.numeric(gross)/as.numeric(budget))) %>% 
+  select(Title, budget, gross, pct_prof) %>% 
+  arrange(desc(pct_prof)) %>% 
+  distinct(Title, .keep_all = T)
+
+my_table <-  kable(head(high_prof, 100),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(
+    font_size = 15,
+    bootstrap_options = c("striped", "hover", "condensed")
+  ) 
+
+ 
+scroll_box(my_table, height = '500px', width = '500px', 
+           box_css = "border: 1px solid #ddd; padding: 5px; ",
+           extra_css = "color: navy;",
+           fixed_thead = TRUE
+)
+```
+
+---
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Lowest Percent Profit</center></h2></span>
+
+```{r}
+
+low_prof <- high_prof %>% 
+  na.omit(budget) %>% 
+  arrange(pct_prof) %>% 
+  distinct(Title, .keep_all = T)
+
+my_table2 <- kable(head(low_prof, 100),
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(
+    font_size = 15,
+    bootstrap_options = c("striped", "hover", "condensed")
+  ) 
+
+
+scroll_box(my_table2, height = '500px', width = '500px', 
+           box_css = "border: 1px solid #ddd; padding: 5px; ",
+           extra_css = "color: navy;",
+           fixed_thead = TRUE
+)
+```
+
+
+---
+
+
+<span style = "color:navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Who spends more money?</center></h2></span>
+
+
+
+```{r}
+
+osc_bud <- osc_bud %>%
+  mutate(budget = as.numeric(budget)) %>%
+  mutate(gross = as.numeric(gross))
+# may be at least in part redundant but to be sure numeric
+
+avg_prof <- osc_bud %>% 
+  filter(!is.na(budget)) %>% 
+  filter(!is.na(gross)) %>% 
+  mutate(avg_profit = (100*sum(gross))/(sum(budget))) %>% 
+  mutate(percent = 100 * (gross/budget))
+  
+avg_profit <- head(avg_prof$avg_profit, 1)
+
+
+win_prof <- osc_bud %>%
+  filter(winner == T) %>%  # calculate percent profit Oscar winners
+  filter(!is.na(budget)) %>%
+  filter(!is.na(gross)) %>%
+  mutate(winner_profit = (100*sum(gross))/(sum((budget)))) %>% 
+  mutate(percent = 100 * (gross/budget))
+
+lsr_prof <- osc_bud %>%
+  filter(winner == F) %>% # calculate percent profit Oscar losers
+  filter(!is.na(budget)) %>%
+  filter(!is.na(gross)) %>%
+  mutate(loser_profit = 100*sum(gross/sum(budget))) %>% 
+  mutate(percent = 100 *(gross/budget))
+
+no_nom_prof <- osc_bud %>%
+  filter(is.na(winner)) %>% # calculate percent profit non-nominated
+  filter(!is.na(budget)) %>%
+  filter(!is.na(gross)) %>%
+  mutate(nonnom_profit = (100*sum(gross))/(sum(budget))) %>% 
+  mutate(percent = 100 * (gross/budget))
+
+
+money_plot <- osc_bud %>% select(Title, genres, gross,
+                                 budget,with_inflation,
+                                 gross_inflation, winner) %>%
+  ggplot() +
+  geom_density(aes((budget), fill = winner), alpha = 0.4)   +
+  my_theme +
+  xlim(0, 60000000) +
+  ylim(0, 0.00000035)  # budget density plot 
+
+
+ggplotly(money_plot)
+
+
+money_plot2 <- osc_bud %>% select(Title, genres,
+                                  gross, with_inflation,
+                                  budget, winner, 
+                                  gross_inflation) %>%
+  ggplot() +
+  geom_density(aes(with_inflation, fill = winner), alpha = 0.4)+
+  xlim(0, 60000000) +
+  ylim(0, 0.00000035) +
+  my_theme # budget with inflation density plot
+
+ggplotly(money_plot2)
+
+grid.arrange(money_plot, money_plot2, ncol=2) 
+# side by side budget plots
+
+```
+
+
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;"><ul><li>The average Oscar winner budget was $`r comma(mean(win_prof$with_inflation), digits = 2)`.</li><li>The median Oscar winner budget was $`r comma(median(win_prof$with_inflation), digits = 2)`</li><li>The average Oscar loser budget was $`r comma(mean(lsr_prof$with_inflation), digits = 2)`</li><li>The median Oscar loser budget was $`r comma(median(lsr_prof$with_inflation), digits = 2)`</li><li>The average non-nominated budget was $`r comma(mean(no_nom_prof$with_inflation, digits = 2))`.</li><li>The median non-nominated budget was $`r comma(median(no_nom_prof$with_inflation), digits = 2)`</li></ul></span>
+
+
+---
+
+<span style = "color: navy;, font-family:Arial, Helvetica, sans-serif;"><h2><center>Who makes more money?</center></h2></span>
+
+```{r}
+
+prof_plot <- osc_bud %>% select(Title, genres, gross,
+                                budget,with_inflation,
+                                gross_inflation,  winner) %>% 
+  ggplot() +
+  geom_density(aes((gross), fill = winner), alpha = 0.4)   + 
+  xlim(0, 200000000) + 
+  ylim(0, 0.000000070) +
+  my_theme # plot gross revenue
+
+ggplotly(prof_plot)
+
+
+prof_plot2 <- osc_bud %>% select(Title, genres, gross,
+                                budget,gross_inflation, winner) %>% 
+  ggplot() +
+  geom_density(aes(gross_inflation, fill = winner), alpha = 0.4)   +     xlim(0, 200000000) +
+  ylim(0, 0.000000070) +
+  my_theme
+
+
+ggplotly(prof_plot2) # plot gross inflation
+
+grid.arrange(prof_plot, prof_plot2, ncol=2) 
+# side by side gross plots
+
+
+```
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;"><ul><li>The average Oscar winner percent profit was `r comma(win_prof$winner_profit[1], digits = 2)`%.</li><li>The median percent profit for Oscar winners was `r comma(median(win_prof$percent),digits = 2)`%.</li><li>The average Oscar loser percent profit was `r comma(lsr_prof$loser_profit[1], digits = 2)`%. </li><li>The median percent profit for Oscar losers was `r comma(median(lsr_prof$percent), digits = 2)`%. </li><li>The average non-nominated percent profit was `r comma(no_nom_prof$nonnom_profit[1], digits = 2)`%.</li><li>The median percent profit for non-nominated movies was `r comma(median(no_nom_prof$percent),digits = 2)`%.</li></ul></span>
+
+
+---
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;">
+<h2><center> Spent vs Made </center></h2></span>
+
+
+
+```{r}
+
+grid.arrange(money_plot, prof_plot, ncol=2) # spent vs made charts
+
+grid.arrange(money_plot2, prof_plot2, ncol=2)
+# same chart with inflation
+
+
+```
+
+---
+
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;"><center><h2>Best Picture Budgets with Inflation</h2></center></span>
+
+
+
+```{r}
+
+bst_pic_budgets <- bst_pic_won %>% 
+  filter(budget > 0) %>% 
+  mutate(year_title = paste(year, ', ', Title))
+# eliminate the few best (less than 10 I think) pics with 0 or na budget
+
+r <- bst_pic_budgets %>%  
+  ggplot() +
+  geom_col(aes(x = year_title, y = with_inflation), fill= blue) +
+  my_theme  # best picture column plot
+
+ggplotly(r) 
+
+min_bud <- bst_pic_won %>% 
+  filter(with_inflation > 0) %>% 
+  filter(with_inflation == min(with_inflation)) %>% 
+  select(Title, with_inflation) %>% 
+  arrange(with_inflation) # determine minimum of best pic budgets
+
+min_bud_title <- head(min_bud$Title, 1) # title of min cost best pic
+min_bud_cost <- head(min_bud$with_inflation, 1) # min cost best pic
+
+avg_bst <- mean(min_bud$with_inflation) # average cost of best pic
+
+max_bud <- bst_pic_won %>% 
+  filter(with_inflation == max(with_inflation)) %>% 
+  select(Title, with_inflation) %>% 
+  arrange(desc(with_inflation)) # determine most expensive best pic
+
+max_bud_title <- head(max_bud$Title, 1) # Title of most expensive
+max_bud_cost <- head(max_bud$with_inflation, 1) # budget of most expensive
+
+
+```
+
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;">
+The minimum budget for a Best Picture winner with inflation was `r min_bud_title` with a cost of $`r comma(min_bud_cost, digits = 2)`. The average budget for a Best Picture winner with inflation was $`r comma(avg_bst, digits = 2)`. The maximum budget for a Best Picture winner with inflation was `r max_bud_title` with a cost of $`r comma(max_bud_cost, digits = 2)`.</span>
+
+
+---
+
+
+<span style = "color:navy; font-family:Arial, Helvetica, sans-serif;"><center><h2>Summary</h2></center>
+I wanted to look at the relationship between the Oscars and money. Looking at the data, it seems clear that Oscar winning movies both tend to cost more to make and have more profits than Oscar losing movies. Following that trend, Oscar losing movies tent to cost more and have more profits than movies that aren't nominated at all. These results were not surprising, as I would hope that award winning movies would tend to be "better" than movies that win no awards. Still, it is hard to say which comes first. Maybe further investigation into how the money for these movies was spent might shed more light on an answer. Lastly, it is clear from the Best Picture column chart that a high budget is not a requirement for being an Oscar winner. Lastly I'd just like to add that the movie business seems to be very lucrative. The average percent profit for these movies was `r comma(avg_profit, digits = 2)`. In essence, this means that a $50,000,000 movie will gross on average $`r comma(avg_profit * (50000000/100))`.</span>
+
+
+
